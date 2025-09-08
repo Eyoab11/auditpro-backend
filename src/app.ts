@@ -33,6 +33,17 @@ app.get('/health', (req, res) => {
   });
 });
 
+// Job queue status endpoint (for monitoring)
+app.get('/api/jobs/status', (req, res) => {
+  const { JobProcessor } = require('./utils/jobProcessor');
+  const status = JobProcessor.getQueueStatus();
+
+  res.status(200).json({
+    success: true,
+    data: status,
+  });
+});
+
 // API routes
 app.use('/api/audit', auditRoutes);
 

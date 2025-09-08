@@ -1,5 +1,6 @@
 // src/services/auditService.ts
 import AuditJob from '../models/AuditJob';
+import { JobProcessor } from '../utils/jobProcessor';
 import { AuditJobResponse, AuditResultsResponse, SubmitAuditResponse } from '../types';
 
 export class AuditService {
@@ -8,8 +9,8 @@ export class AuditService {
       const newAuditJob = new AuditJob({ url, status: 'pending' });
       await newAuditJob.save();
 
-      // TODO: In Phase 2, this is where we'll delegate the actual scanning
-      // to a background worker/queue using the newAuditJob._id
+      // Add to background job processor
+      JobProcessor.addAuditJob(newAuditJob._id as string, url);
 
       return {
         msg: 'Audit job submitted successfully. Processing will begin shortly.',

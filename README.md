@@ -5,13 +5,18 @@ A Node.js/TypeScript backend API for the AuditPro web accessibility auditing pla
 ## Features
 
 - **Professional Architecture**: Layered architecture with separation of concerns (Routes → Controllers → Services → Models)
+- **Puppeteer Integration**: Headless browser crawling for comprehensive website analysis
+- **Marketing Tag Detection**: Automatic detection of GTM, GA4, Meta Pixel, LinkedIn, TikTok, Twitter, and Pinterest tags
+- **Performance Metrics**: Core Web Vitals and page load performance analysis
+- **Background Processing**: Asynchronous job queue system for scalable audit processing
+- **Network Monitoring**: Tracking of tracking-related network requests
 - **Audit Job Management**: Submit URLs for accessibility audits and track their progress
 - **RESTful API**: Clean, standardized API endpoints with consistent response formats
 - **MongoDB Integration**: Document-based storage for audit data with Mongoose ODM
 - **TypeScript**: Full type safety with custom interfaces and type definitions
 - **Error Handling**: Comprehensive error handling with custom middleware and async error catching
 - **Input Validation**: Robust request validation with detailed error messages
-- **Health Monitoring**: Built-in health check endpoint for monitoring
+- **Health Monitoring**: Built-in health check and job queue status endpoints
 
 ## Tech Stack
 
@@ -19,8 +24,10 @@ A Node.js/TypeScript backend API for the AuditPro web accessibility auditing pla
 - **Language**: TypeScript
 - **Framework**: Express.js
 - **Database**: MongoDB with Mongoose ODM
+- **Web Scraping**: Puppeteer (headless Chrome automation)
 - **Authentication**: JWT (planned for future implementation)
 - **Development**: Nodemon for hot reloading
+- **Job Processing**: Custom background job queue system
 
 ## Project Structure
 
@@ -71,6 +78,31 @@ The backend follows a layered architecture pattern for better maintainability an
 - **Type Safety**: Full TypeScript support with custom type definitions
 - **Validation**: Input validation utilities for request data
 - **Async Handling**: Proper async/await patterns with error catching
+
+```
+
+## Puppeteer Crawling Engine
+
+The backend includes a comprehensive Puppeteer-based crawling engine that performs detailed website analysis:
+
+### **Tag Detection**
+- **Google Tag Manager (GTM)**: Detects GTM containers and extracts container IDs
+- **Google Analytics 4 (GA4)**: Identifies gtag implementations and measurement IDs
+- **Meta Pixel**: Finds Facebook pixel implementations and pixel IDs
+- **LinkedIn Insight Tag**: Detects LinkedIn tracking pixels
+- **TikTok Pixel**: Identifies TikTok advertising pixels
+- **Twitter Pixel**: Finds Twitter conversion tracking
+- **Pinterest Tag**: Detects Pinterest advertising tags
+
+### **Performance Analysis**
+- **Core Web Vitals**: Largest Contentful Paint (LCP), First Input Delay (FID), Cumulative Layout Shift (CLS)
+- **Load Times**: Navigation start, DOM content loaded, page load complete
+- **First Contentful Paint**: Time to first visual content
+
+### **Network Monitoring**
+- Tracks all network requests during page load
+- Identifies tracking domains and third-party scripts
+- Monitors script loading patterns and timing
 
 ## Setup Instructions
 
@@ -194,6 +226,27 @@ All API responses follow a standardized format:
     "success": true,
     "message": "AuditPro Backend is running",
     "timestamp": "2025-09-08T..."
+  }
+  ```
+
+### Job Queue Status
+- **GET** `/api/jobs/status`
+- **Response (200)**:
+  ```json
+  {
+    "success": true,
+    "data": {
+      "queueLength": 2,
+      "isProcessing": true,
+      "jobs": [
+        {
+          "id": "audit_64f..._1694190000000",
+          "type": "audit",
+          "createdAt": "2025-09-08T...",
+          "retries": 0
+        }
+      ]
+    }
   }
   ```
 
