@@ -4,11 +4,14 @@ A Node.js/TypeScript backend API for the AuditPro web accessibility auditing pla
 
 ## Features
 
+- **Professional Architecture**: Layered architecture with separation of concerns (Routes → Controllers → Services → Models)
 - **Audit Job Management**: Submit URLs for accessibility audits and track their progress
-- **RESTful API**: Clean API endpoints for frontend integration
-- **MongoDB Integration**: Document-based storage for audit data
-- **TypeScript**: Type-safe development with full IntelliSense support
-- **Error Handling**: Comprehensive error handling and validation
+- **RESTful API**: Clean, standardized API endpoints with consistent response formats
+- **MongoDB Integration**: Document-based storage for audit data with Mongoose ODM
+- **TypeScript**: Full type safety with custom interfaces and type definitions
+- **Error Handling**: Comprehensive error handling with custom middleware and async error catching
+- **Input Validation**: Robust request validation with detailed error messages
+- **Health Monitoring**: Built-in health check endpoint for monitoring
 
 ## Tech Stack
 
@@ -24,15 +27,50 @@ A Node.js/TypeScript backend API for the AuditPro web accessibility auditing pla
 ```
 auditpro-backend/
 ├── src/
+│   ├── config/
+│   │   └── database.ts          # MongoDB connection configuration
+│   ├── controllers/
+│   │   └── auditController.ts   # HTTP request handlers for audit routes
+│   ├── middleware/
+│   │   └── errorHandler.ts      # Global error handling middleware
 │   ├── models/
-│   │   └── AuditJob.ts      # MongoDB schema for audit jobs
-│   ├── database.ts          # MongoDB connection setup
-│   └── server.ts            # Express server and API routes
-├── .env                     # Environment variables
-├── package.json             # Dependencies and scripts
-├── tsconfig.json            # TypeScript configuration
-└── nodemon.json             # Development server config
+│   │   └── AuditJob.ts          # MongoDB schema for audit jobs
+│   ├── routes/
+│   │   └── auditRoutes.ts       # API route definitions
+│   ├── services/
+│   │   └── auditService.ts      # Business logic layer
+│   ├── types/
+│   │   └── index.ts             # TypeScript type definitions
+│   ├── utils/
+│   │   └── validation.ts        # Utility functions for validation
+│   ├── app.ts                   # Express application configuration
+│   └── server.ts                # Server startup and configuration
+├── .env                         # Environment variables
+├── package.json                 # Dependencies and scripts
+├── tsconfig.json                # TypeScript configuration
+└── nodemon.json                 # Development server config
 ```
+
+## Architecture
+
+The backend follows a layered architecture pattern for better maintainability and scalability:
+
+### **Layers Overview**
+
+- **Routes Layer** (`/routes`): Defines API endpoints and maps them to controller functions
+- **Controller Layer** (`/controllers`): Handles HTTP requests, validates input, and orchestrates responses
+- **Service Layer** (`/services`): Contains business logic and interacts with data models
+- **Model Layer** (`/models`): Defines MongoDB schemas and data structures
+- **Middleware Layer** (`/middleware`): Handles cross-cutting concerns like error handling and authentication
+- **Utils Layer** (`/utils`): Contains reusable utility functions and helpers
+
+### **Key Features**
+
+- **Separation of Concerns**: Each layer has a specific responsibility
+- **Error Handling**: Centralized error handling with custom error classes
+- **Type Safety**: Full TypeScript support with custom type definitions
+- **Validation**: Input validation utilities for request data
+- **Async Handling**: Proper async/await patterns with error catching
 
 ## Setup Instructions
 
@@ -76,18 +114,88 @@ The server will start on `http://localhost:5000` (or the port specified in `.env
 
 ## API Endpoints
 
+All API responses follow a standardized format:
+
+```json
+{
+  "success": true|false,
+  "data": { ... }, // Present when success is true
+  "error": "error message", // Present when success is false
+  "message": "additional message" // Optional additional context
+}
+```
+
 ### Submit Audit Job
 - **POST** `/api/audit/submit`
 - **Body**: `{ "url": "https://example.com" }`
-- **Response**: Job ID and initial status
+- **Success Response (202)**:
+  ```json
+  {
+    "success": true,
+    "data": {
+      "msg": "Audit job submitted successfully. Processing will begin shortly.",
+      "jobId": "64f...",
+      "status": "pending"
+    }
+  }
+  ```
+- **Error Response (400)**:
+  ```json
+  {
+    "success": false,
+    "error": "Please provide a valid URL starting with http:// or https://"
+  }
+  ```
 
 ### Get Audit Status
 - **GET** `/api/audit/:jobId/status`
-- **Response**: Current job status, URL, timestamps, and error messages if applicable
+- **Success Response (200)**:
+  ```json
+  {
+    "success": true,
+    "data": {
+      "jobId": "64f...",
+      "url": "https://example.com",
+      "status": "pending",
+      "updatedAt": "2025-09-08T...",
+      "errorMessage": null
+    }
+  }
+  ```
+- **Error Responses**:
+  - **404**: `{"success": false, "error": "Audit job not found"}`
+  - **400**: `{"success": false, "error": "Invalid Job ID format"}`
 
 ### Get Audit Results
 - **GET** `/api/audit/:jobId/results`
-- **Response**: Complete audit results for completed jobs
+- **Success Response (200)**:
+  ```json
+  {
+    "success": true,
+    "data": {
+      "jobId": "64f...",
+      "url": "https://example.com",
+      "status": "completed",
+      "results": { ... },
+      "createdAt": "2025-09-08T...",
+      "updatedAt": "2025-09-08T..."
+    }
+  }
+  ```
+- **Error Responses**:
+  - **404**: `{"success": false, "error": "Audit job not found"}`
+  - **409**: `{"success": false, "error": "Audit job status is 'pending'. Results are not yet available."}`
+
+### Health Check
+- **GET** `/health`
+- **Response (200)**:
+  ```json
+  {
+    "success": true,
+    "message": "AuditPro Backend is running",
+    "timestamp": "2025-09-08T..."
+  }
+  ```
 
 ## Database Schema
 
@@ -122,6 +230,37 @@ The server will start on `http://localhost:5000` (or the port specified in `.env
 - Webhook notifications for job completion
 - Rate limiting and API throttling
 - Comprehensive logging and monitoring
+
+## Development Best Practices
+
+### **Adding New Features**
+
+1. **Routes**: Add new endpoints in the appropriate route file (`/routes`)
+2. **Controllers**: Create controller functions to handle HTTP requests and responses
+3. **Services**: Implement business logic in service classes
+4. **Models**: Define data schemas in the models directory
+5. **Types**: Add TypeScript interfaces in `/types/index.ts`
+6. **Validation**: Create validation functions in `/utils/validation.ts`
+
+### **Error Handling**
+
+- Use the `asyncHandler` wrapper for async controller functions
+- Throw descriptive errors from services
+- Let the global error handler format responses
+- Return appropriate HTTP status codes
+
+### **Response Format**
+
+Always follow the standardized response format:
+- **Success**: `{ success: true, data: {...} }`
+- **Error**: `{ success: false, error: "message" }`
+
+### **Code Organization**
+
+- Keep controllers thin - delegate to services
+- Services should contain business logic only
+- Models should only define schemas and basic queries
+- Use middleware for cross-cutting concerns
 
 ## Contributing
 
