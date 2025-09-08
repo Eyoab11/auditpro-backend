@@ -5,6 +5,7 @@ import dotenv from 'dotenv';
 
 // Import routes
 import auditRoutes from './routes/auditRoutes';
+import authRoutes from './routes/authRoutes';
 
 // Import middleware
 import { errorHandler } from './middleware/errorHandler';
@@ -46,6 +47,7 @@ app.get('/api/jobs/status', (req, res) => {
 
 // API routes
 app.use('/api/audit', auditRoutes);
+app.use('/api/auth', authRoutes);
 
 // 404 handler for undefined routes
 app.use((req, res) => {

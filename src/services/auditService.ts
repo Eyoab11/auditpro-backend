@@ -4,9 +4,9 @@ import { JobProcessor } from '../utils/jobProcessor';
 import { AuditJobResponse, AuditResultsResponse, SubmitAuditResponse } from '../types';
 
 export class AuditService {
-  static async createAuditJob(url: string): Promise<SubmitAuditResponse> {
+  static async createAuditJob(url: string, userId: string): Promise<SubmitAuditResponse> {
     try {
-      const newAuditJob = new AuditJob({ url, status: 'pending' });
+      const newAuditJob = new AuditJob({ url, user: userId, status: 'pending' });
       await newAuditJob.save();
 
       // Add to background job processor
@@ -23,9 +23,9 @@ export class AuditService {
     }
   }
 
-  static async getAuditStatus(jobId: string): Promise<AuditJobResponse> {
+  static async getAuditStatus(jobId: string, userId: string): Promise<AuditJobResponse> {
     try {
-      const auditJob = await AuditJob.findById(jobId);
+      const auditJob = await AuditJob.findOne({ _id: jobId, user: userId });
 
       if (!auditJob) {
         throw new Error('Audit job not found');
@@ -47,9 +47,9 @@ export class AuditService {
     }
   }
 
-  static async getAuditResults(jobId: string): Promise<AuditResultsResponse> {
+  static async getAuditResults(jobId: string, userId: string): Promise<AuditResultsResponse> {
     try {
-      const auditJob = await AuditJob.findById(jobId);
+      const auditJob = await AuditJob.findOne({ _id: jobId, user: userId });
 
       if (!auditJob) {
         throw new Error('Audit job not found');

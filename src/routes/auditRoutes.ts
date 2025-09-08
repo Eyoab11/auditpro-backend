@@ -5,22 +5,23 @@ import {
   getAuditStatus,
   getAuditResults,
 } from '../controllers/auditController';
+import { protect } from '../middleware/auth';
 
 const router = Router();
 
 // @route    POST /api/audit/submit
 // @desc     Submit a URL for a new audit
-// @access   Public (for now, will be authenticated later)
-router.post('/submit', submitAudit);
+// @access   Private (requires authentication)
+router.post('/submit', protect, submitAudit);
 
 // @route    GET /api/audit/:jobId/status
 // @desc     Get the current status of an audit job
-// @access   Public
-router.get('/:jobId/status', getAuditStatus);
+// @access   Private
+router.get('/:jobId/status', protect, getAuditStatus);
 
 // @route    GET /api/audit/:jobId/results
 // @desc     Get the full results of a completed audit job
-// @access   Public
-router.get('/:jobId/results', getAuditResults);
+// @access   Private
+router.get('/:jobId/results', protect, getAuditResults);
 
 export default router;

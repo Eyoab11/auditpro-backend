@@ -22,7 +22,8 @@ export const submitAudit = asyncHandler(async (
   }
 
   const { url } = req.body;
-  const result: SubmitAuditResponse = await AuditService.createAuditJob(url);
+  const userId = req.user.id; // Get user ID from authenticated request
+  const result: SubmitAuditResponse = await AuditService.createAuditJob(url, userId);
 
   const response: ApiResponse<SubmitAuditResponse> = {
     success: true,
@@ -49,7 +50,7 @@ export const getAuditStatus = asyncHandler(async (
   }
 
   try {
-    const result: AuditJobResponse = await AuditService.getAuditStatus(jobId);
+    const result: AuditJobResponse = await AuditService.getAuditStatus(jobId, req.user.id);
 
     const response: ApiResponse<AuditJobResponse> = {
       success: true,
@@ -98,7 +99,7 @@ export const getAuditResults = asyncHandler(async (
   }
 
   try {
-    const result: AuditResultsResponse = await AuditService.getAuditResults(jobId);
+    const result: AuditResultsResponse = await AuditService.getAuditResults(jobId, req.user.id);
 
     const response: ApiResponse<AuditResultsResponse> = {
       success: true,

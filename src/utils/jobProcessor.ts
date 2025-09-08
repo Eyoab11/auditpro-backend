@@ -1,6 +1,8 @@
 // src/utils/jobProcessor.ts
 // Removed circular import - will use dynamic imports instead
 
+import axios from 'axios';
+
 interface Job {
   id: string;
   type: 'audit';
@@ -16,6 +18,7 @@ export class JobProcessor {
   private static jobQueue: Job[] = [];
   private static isProcessing = false;
   private static maxRetries = 3;
+  private static pythonServiceUrl = process.env.PYTHON_SERVICE_URL || 'http://localhost:5001';
 
   static addAuditJob(jobId: string, url: string): void {
     const job: Job = {
@@ -112,24 +115,97 @@ export class JobProcessor {
       // Perform the audit
       const auditData = await PuppeteerService.performAudit(url, jobId);
 
-      // Process results
-      const results = this.processAuditResults(auditData);
+      if (auditData.errors && auditData.errors.length > 0) {
+        throw new Error(`Puppeteer scan failed: ${auditData.errors.join(', ')}`);
+      }
 
-      // Update job with results
+      // Update status to analyzing
       await AuditJob.findByIdAndUpdate(jobId, {
-        status: auditData.errors ? 'failed' : 'completed',
+        status: 'analyzing',
         rawScanData: auditData,
-        results: auditData.errors ? null : results,
-        errorMessage: auditData.errors ? auditData.errors.join(', ') : null,
         updatedAt: new Date()
       });
 
-      console.log(`📊 Audit completed for job ${jobId}`);
+      console.log(`🧠 Starting Python analysis for ${url}`);
+
+      // Send data to Python service for analysis
+      const analysisResult = await this.callPythonAnalysis(auditData);
+
+      // Process and combine results
+      const enhancedResults = this.processEnhancedResults(auditData, analysisResult);
+
+      // Update job with enhanced results
+      await AuditJob.findByIdAndUpdate(jobId, {
+        status: 'completed',
+        results: enhancedResults,
+        analysisData: analysisResult,
+        updatedAt: new Date()
+      });
+
+      console.log(`📊 Audit completed for job ${jobId} with ${analysisResult.auditFindings?.length || 0} findings`);
 
     } catch (error: any) {
       console.error(`Audit processing failed for job ${jobId}:`, error.message);
+
+      // Update job with error status
+      await AuditJob.findByIdAndUpdate(jobId, {
+        status: 'failed',
+        errorMessage: error.message,
+        updatedAt: new Date()
+      });
+
       throw error;
     }
+  }
+
+  private static async callPythonAnalysis(auditData: any): Promise<any> {
+    try {
+      const response = await axios.post(
+        `${this.pythonServiceUrl}/analyze-audit-data`,
+        auditData,
+        {
+          timeout: 30000, // 30 second timeout
+          headers: {
+            'Content-Type': 'application/json'
+          }
+        }
+      );
+
+      return response.data;
+    } catch (error: any) {
+      console.error('Python analysis service error:', error.message);
+
+      if (error.code === 'ECONNREFUSED') {
+        throw new Error('Python analysis service is not available. Please ensure the Python service is running.');
+      }
+
+      if (error.response) {
+        throw new Error(`Python analysis failed: ${error.response.data?.message || error.response.statusText}`);
+      }
+
+      throw new Error(`Python analysis request failed: ${error.message}`);
+    }
+  }
+
+  private static processEnhancedResults(auditData: any, analysisResult: any): any {
+    // Combine basic processing with Python analysis results
+    const basicResults = this.processAuditResults(auditData);
+
+    // Enhanced results from Python service
+    return {
+      ...basicResults,
+      analysis: {
+        summary: analysisResult.auditSummary || {},
+        findings: analysisResult.auditFindings || [],
+        processedTags: analysisResult.processedTags || [],
+        performanceScores: analysisResult.performanceScores || {}
+      },
+      metadata: {
+        processedByPython: true,
+        analysisTimestamp: analysisResult.analysisTimestamp,
+        processingTimeMs: analysisResult.processingTimeMs
+      }
+    };
   }
 
   private static processAuditResults(auditData: any): any {
