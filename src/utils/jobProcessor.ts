@@ -18,7 +18,13 @@ export class JobProcessor {
   private static jobQueue: Job[] = [];
   private static isProcessing = false;
   private static maxRetries = 3;
-  private static pythonServiceUrl = process.env.PYTHON_SERVICE_URL || 'http://localhost:5001';
+  // Keep initial value but prefer dynamic lookup each call in case env injected after start
+  private static initialPythonServiceUrl = process.env.PYTHON_SERVICE_URL || 'http://localhost:5001';
+
+  private static getPythonServiceUrl(): string {
+    const envUrl = process.env.PYTHON_SERVICE_URL;
+    return (envUrl && envUrl.trim().length > 0 ? envUrl.trim() : this.initialPythonServiceUrl).replace(/\/$/, '');
+  }
 
   static addAuditJob(jobId: string, url: string): void {
     const job: Job = {
@@ -126,10 +132,11 @@ export class JobProcessor {
         updatedAt: new Date()
       });
 
-      console.log(`🧠 Starting Python analysis for ${url}`);
+  console.log(`🧠 Starting Python analysis for ${url}`);
+  console.log(`🔧 Using PYTHON_SERVICE_URL=${this.getPythonServiceUrl()}`);
 
       // Send data to Python service for analysis
-      const analysisResult = await this.callPythonAnalysis(auditData);
+  const analysisResult = await this.callPythonAnalysis(auditData);
 
       // Process and combine results
       const enhancedResults = this.processEnhancedResults(auditData, analysisResult);
@@ -146,6 +153,13 @@ export class JobProcessor {
 
     } catch (error: any) {
       console.error(`Audit processing failed for job ${jobId}:`, error.message);
+      if (error?.response) {
+        console.error('Python service response status:', error.response.status);
+        console.error('Python service response body:', JSON.stringify(error.response.data));
+      }
+      if (error?.stack) {
+        console.error(error.stack.split('\n').slice(0,6).join('\n'));
+      }
 
       // Update job with error status
       await AuditJob.findByIdAndUpdate(jobId, {
@@ -160,20 +174,27 @@ export class JobProcessor {
 
   private static async callPythonAnalysis(auditData: any): Promise<any> {
     try {
-      const response = await axios.post(
-        `${this.pythonServiceUrl}/analyze-audit-data`,
-        auditData,
-        {
-          timeout: 30000, // 30 second timeout
-          headers: {
-            'Content-Type': 'application/json'
-          }
-        }
-      );
+      const base = this.getPythonServiceUrl();
+      const url = `${base}/analyze-audit-data`;
+      console.log(`➡️  Posting audit payload to Python service: ${url}`);
+      console.log(`📦 Payload size ~${JSON.stringify(auditData).length} bytes`);
+      const response = await axios.post(url, auditData, {
+        timeout: 40000,
+        headers: { 'Content-Type': 'application/json' },
+        validateStatus: s => s < 500 // surface 4xx for logging
+      });
+
+      if (response.status >= 400) {
+        throw new Error(`Python analysis HTTP ${response.status}: ${JSON.stringify(response.data).slice(0,400)}`);
+      }
 
       return response.data;
     } catch (error: any) {
       console.error('Python analysis service error:', error.message);
+      if (error?.response) {
+        console.error('Raw response status:', error.response.status);
+        console.error('Raw response body:', JSON.stringify(error.response.data));
+      }
 
       if (error.code === 'ECONNREFUSED') {
         throw new Error('Python analysis service is not available. Please ensure the Python service is running.');
@@ -183,7 +204,7 @@ export class JobProcessor {
         throw new Error(`Python analysis failed: ${error.response.data?.message || error.response.statusText}`);
       }
 
-      throw new Error(`Python analysis request failed: ${error.message}`);
+  throw new Error(`Python analysis request failed: ${error.message}`);
     }
   }
 
