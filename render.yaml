@@ -1,0 +1,36 @@
+services:
+  - name: auditpro-backend
+    type: web
+    env: docker
+    rootDir: .
+    plan: free
+    autoDeploy: true
+    healthCheckPath: /health
+    dockerCommand: ''
+    envVars:
+      - key: PORT
+        value: 5000
+      - key: NODE_ENV
+        value: production
+      - key: MONGODB_URI
+        # Set this to your Render managed DB connection string after creating a database
+        value: ""
+      - key: PYTHON_SERVICE_URL
+        # Update this to the deployed python processor URL (e.g. https://auditpro-python.onrender.com)
+        value: ""
+      - key: CLIENT_URL
+        # URL of frontend application
+        value: ""
+    buildCommand: npm ci --only=production && npm run build
+    startCommand: npm start
+    disk:
+      name: temp
+      mountPath: /data
+      sizeGB: 1
+
+# Notes:
+# - Replace empty values for MONGODB_URI, PYTHON_SERVICE_URL and CLIENT_URL in the Render dashboard
+#   (mark secrets like MONGODB_URI as 'Secret').
+# - The repository contains a Dockerfile; Render will build the container from it when env="docker".
+# - If you prefer Render to build from the Dockerfile automatically, you may remove buildCommand/startCommand
+#   here and let the Dockerfile control the CMD. Keep healthCheckPath set to /health.
