@@ -12,12 +12,6 @@ interface AuthUser {
   name?: string;
 }
 
-declare module 'express-serve-static-core' {
-  interface Request {
-    user?: AuthUser;
-  }
-}
-
 // Protect routes - require authentication
 export const protect = async (req: Request, res: Response, next: NextFunction) => {
   let token;
