@@ -6,7 +6,6 @@
     "start": "node dist/server.js",
     "dev": "nodemon",
     "build": "tsc",
-  "postinstall": "npx puppeteer browsers install chrome",
     "test": "jest",
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage"
@@ -24,7 +23,8 @@
     "jsonwebtoken": "^9.0.2",
     "mongodb": "^6.19.0",
     "mongoose": "^8.18.0",
-    "puppeteer": "^24.19.0",
+    "@sparticuz/chromium": "^123.0.1",
+    "puppeteer-core": "^22.13.0",
     "@types/express": "^5.0.3",
     "@types/cors": "^2.8.19",
     "@types/jsonwebtoken": "^9.0.10"

@@ -1,6 +1,6 @@
 // src/services/puppeteerService.ts
-import puppeteer, { Browser, Page } from 'puppeteer';
-import { execSync } from 'child_process';
+import puppeteer, { Browser, Page } from 'puppeteer-core';
+import chromium from '@sparticuz/chromium';
 import {
   RawAuditData,
   DetectedScript,
@@ -32,30 +32,13 @@ export class PuppeteerService {
     try {
       console.log(`🚀 Starting audit for ${url} (Job ID: ${jobId})`);
 
-      // Launch browser with production-ready options
-      let executablePath = process.env.PUPPETEER_EXECUTABLE_PATH;
-      if (!executablePath) {
-        try {
-          // Try querying puppeteer for installed chrome path (Puppeteer v24 provides browsers API via CLI)
-          // Fallback to common linux path
-          const possible = ['/usr/bin/google-chrome-stable','/usr/bin/chromium','/usr/bin/chromium-browser'];
-          for (const p of possible) {
-            try { execSync(`test -x ${p}`); executablePath = p; break; } catch { /* ignore */ }
-          }
-        } catch { /* ignore */ }
-      }
+      // Use @sparticuz/chromium for launching browser
       browser = await puppeteer.launch({
-        headless: true,
-        executablePath: executablePath || undefined,
-        args: [
-          '--no-sandbox',
-          '--disable-setuid-sandbox',
-          '--disable-dev-shm-usage',
-          '--disable-accelerated-2d-canvas',
-          '--no-first-run',
-          '--no-zygote',
-          '--disable-gpu'
-        ]
+        args: chromium.args,
+        defaultViewport: chromium.defaultViewport,
+        executablePath: await chromium.executablePath(),
+        headless: chromium.headless,
+        ignoreHTTPSErrors: true,
       });
 
       page = await browser.newPage();
