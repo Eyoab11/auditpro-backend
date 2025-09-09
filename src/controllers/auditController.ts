@@ -200,37 +200,67 @@ export const generateAuditPdf = asyncHandler(async (
     return;
   }
 
-  // Build simple HTML (could be improved with a template engine later)
-  const audit = (results as any).audit || (results as any).results || results; // fallback
+  // Map enhanced results structure to PDF-friendly shape
+  const enhanced = (results as any).results || results;
+
+  const summary = enhanced.summary || {};
+  const analysis = enhanced.analysis || {};
+  const performanceMetrics = enhanced.performance || analysis.performanceScores || {};
+  const scripts = enhanced.scripts || [];
+  const tags = enhanced.tags || analysis.processedTags || [];
+  const findings = analysis.findings || analysis.auditFindings || [];
+  const network = enhanced.network || [];
+  const urlVal = summary.url || (results as any).url || enhanced.url || 'Unknown';
+  const created = (results as any).createdAt || summary.timestamp || enhanced.timestamp || new Date();
+  const healthScore = enhanced.healthScore || summary.healthScore || '';
+
+  const esc = (v: any) => String(v ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+
+  const perfRows = Object.entries(performanceMetrics).filter(([k]) => !/^(navigationStart|loadEventEnd|domContentLoadedEventEnd)$/i.test(k));
+
   const html = `<!DOCTYPE html><html><head><meta charset="utf-8" />
-  <title>Audit Report ${jobId}</title>
+  <title>Audit Report ${esc(jobId)}</title>
   <style>
     body { font-family: Arial, sans-serif; padding: 24px; }
-    h1 { color: #4B0082; }
+    h1 { color: #4B0082; margin-top:0; }
     h2 { margin-top: 32px; border-bottom: 1px solid #ccc; padding-bottom: 4px; }
     table { border-collapse: collapse; width: 100%; margin-top: 12px; }
-    th, td { border: 1px solid #ddd; padding: 8px; font-size: 12px; }
+    th, td { border: 1px solid #ddd; padding: 6px 8px; font-size: 12px; vertical-align: top; }
     th { background: #f5f5f5; text-align: left; }
-    .badge { display:inline-block; padding:2px 6px; border-radius:4px; background:#eee; font-size:11px; }
+    .badge { display:inline-block; padding:2px 6px; border-radius:4px; background:#eee; font-size:11px; margin-left:6px; }
+    .sev-high { color:#b91c1c; }
+    .sev-medium { color:#d97706; }
+    .sev-low { color:#2563eb; }
+    .meta { font-size:12px; color:#555; margin-top:4px; }
   </style></head><body>
-  <h1>Audit Report</h1>
-  <p><strong>URL:</strong> ${audit.url}</p>
-  <p><strong>Date:</strong> ${(audit.createdAt || audit.timestamp || new Date()).toString()}</p>
+  <h1>Audit Report <span class="badge">${esc(jobId)}</span></h1>
+  <p><strong>URL:</strong> ${esc(urlVal)}</p>
+  <p><strong>Date:</strong> ${esc(new Date(created).toString())}</p>
+  ${healthScore ? `<p><strong>Health Score:</strong> ${esc(healthScore)}</p>` : ''}
+
   <h2>Performance Metrics</h2>
   <table><tbody>
-    ${(audit.performanceMetrics ? Object.entries(audit.performanceMetrics).map(([k,v])=>`<tr><th>${k}</th><td>${v}</td></tr>`).join('') : '<tr><td colspan="2">No metrics</td></tr>')}
+    ${perfRows.length ? perfRows.map(([k,v])=>`<tr><th>${esc(k)}</th><td>${esc(v)}</td></tr>`).join('') : '<tr><td colspan="2">No metrics</td></tr>'}
   </tbody></table>
-  <h2>Detected Scripts (${audit.detectedScripts?.length || 0})</h2>
+
+  <h2>Detected Scripts (${scripts.length})</h2>
   <table><thead><tr><th>Src/Type</th><th>Location</th><th>Async</th><th>Defer</th></tr></thead><tbody>
-  ${(audit.detectedScripts||[]).slice(0,100).map((s:any)=>`<tr><td>${s.src || 'inline'}</td><td>${s.location||''}</td><td>${s.async}</td><td>${s.defer}</td></tr>`).join('') || '<tr><td colspan="4">None</td></tr>'}
+    ${scripts.length ? scripts.slice(0,120).map((s:any)=>`<tr><td>${esc(s.src||'inline')}</td><td>${esc(s.location||'')}</td><td>${esc(s.async)}</td><td>${esc(s.defer)}</td></tr>`).join('') : '<tr><td colspan="4">None</td></tr>'}
   </tbody></table>
-  <h2>Injected Tags (${audit.injectedTags?.length || 0})</h2>
-  <table><thead><tr><th>Type</th><th>ID</th><th>Status</th></tr></thead><tbody>
-  ${(audit.injectedTags||[]).map((t:any)=>`<tr><td>${t.type}</td><td>${t.id||t.pixelId||t.measurementId||''}</td><td>${t.status}</td></tr>`).join('') || '<tr><td colspan="3">None</td></tr>'}
+
+  <h2>Tags (${tags.length})</h2>
+  <table><thead><tr><th>Name / Type</th><th>ID</th><th>Status</th><th>Details</th></tr></thead><tbody>
+    ${tags.length ? tags.slice(0,150).map((t:any)=>`<tr><td>${esc(t.name||t.type||'')}</td><td>${esc(t.id||t.pixelId||t.measurementId||'')}</td><td>${esc(t.status||'')}</td><td>${esc(t.details||'')}</td></tr>`).join('') : '<tr><td colspan="4">None</td></tr>'}
   </tbody></table>
-  <h2>Network Requests (${audit.networkRequests?.length || 0})</h2>
+
+  <h2>Findings (${findings.length})</h2>
+  <table><thead><tr><th>Title</th><th>Type</th><th>Severity</th><th>Description</th></tr></thead><tbody>
+    ${findings.length ? findings.slice(0,200).map((f:any)=>`<tr><td>${esc(f.title||f.id||'')}</td><td>${esc(f.type||'')}</td><td class="sev-${esc((f.severity||'').toLowerCase())}">${esc(f.severity||'')}</td><td>${esc(f.description||f.details||'')}</td></tr>`).join('') : '<tr><td colspan="4">None</td></tr>'}
+  </tbody></table>
+
+  <h2>Network Requests (${network.length})</h2>
   <table><thead><tr><th>URL</th><th>Type</th><th>Initiator</th></tr></thead><tbody>
-  ${(audit.networkRequests||[]).slice(0,200).map((r:any)=>`<tr><td>${r.url}</td><td>${r.type}</td><td>${r.initiator}</td></tr>`).join('') || '<tr><td colspan="3">None</td></tr>'}
+    ${network.length ? network.slice(0,250).map((r:any)=>`<tr><td>${esc(r.url)}</td><td>${esc(r.type)}</td><td>${esc(r.initiator)}</td></tr>`).join('') : '<tr><td colspan="3">None</td></tr>'}
   </tbody></table>
   </body></html>`;
 
