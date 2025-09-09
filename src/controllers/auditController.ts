@@ -5,6 +5,7 @@ import { validateAuditRequest } from '../utils/validation';
 import { asyncHandler } from '../middleware/errorHandler';
 import { ApiResponse, SubmitAuditResponse, AuditJobResponse, AuditResultsResponse, AuditHistoryResponse } from '../types';
 import puppeteer from 'puppeteer-core';
+import chromium from '@sparticuz/chromium';
 
 export const submitAudit = asyncHandler(async (
   req: Request,
@@ -233,13 +234,28 @@ export const generateAuditPdf = asyncHandler(async (
   </tbody></table>
   </body></html>`;
 
-  const browser = await puppeteer.launch({ headless: true, args: ['--no-sandbox','--disable-setuid-sandbox'] });
-  const page = await browser.newPage();
-  await page.setContent(html, { waitUntil: 'networkidle0' });
-  const pdfBuffer = await page.pdf({ format: 'A4', printBackground: true });
-  await browser.close();
+  try {
+    const browser = await puppeteer.launch({
+      args: chromium.args,
+      defaultViewport: chromium.defaultViewport,
+      executablePath: await chromium.executablePath(),
+      headless: chromium.headless,
+      ignoreHTTPSErrors: true,
+    });
 
-  res.setHeader('Content-Type', 'application/pdf');
-  res.setHeader('Content-Disposition', `attachment; filename="audit-${jobId}.pdf"`);
-  res.send(pdfBuffer);
+    const page = await browser.newPage();
+    await page.setContent(html, { waitUntil: 'networkidle0' });
+    const pdfBuffer = await page.pdf({ format: 'A4', printBackground: true });
+    await browser.close();
+
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="audit-${jobId}.pdf"`);
+    res.send(pdfBuffer);
+    return;
+  } catch (err: any) {
+    console.error('Failed to generate PDF:', err?.message || err);
+    // Fallback: respond with error and suggestion
+    res.status(500).json({ success: false, error: 'PDF generation failed', message: err?.message || String(err) });
+    return;
+  }
 });
