@@ -66,12 +66,22 @@ export class PuppeteerService {
         }
       });
 
-      // Navigate to the page
+      // Navigate to the page with graceful fallback
       console.log(`📄 Navigating to ${url}`);
-      await page.goto(url, {
-        waitUntil: 'networkidle0',
-        timeout: 30000
-      });
+      try {
+        await page.goto(url, { waitUntil: 'networkidle0', timeout: 30000 });
+      } catch (navErr: any) {
+        if (navErr?.message?.includes('Navigation timeout')) {
+          console.warn(`⏱️ networkidle0 timeout for ${url}. Retrying with 'domcontentloaded'.`);
+          try {
+            await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 15000 });
+          } catch (secondErr: any) {
+            throw secondErr; // propagate second failure
+          }
+        } else {
+          throw navErr; // non-timeout error (e.g., DNS) propagate directly
+        }
+      }
 
       // Wait a bit for dynamic content to load
       await new Promise(resolve => setTimeout(resolve, 2000));
@@ -107,6 +117,14 @@ export class PuppeteerService {
       if (error.message && error.message.includes('Could not find Chrome')) {
         console.error('ℹ️ Resolution: run "npx puppeteer browsers install chrome" or set PUPPETEER_EXECUTABLE_PATH to a valid Chromium binary path.');
       }
+      let classifiedMessage = error.message || 'Unknown error';
+      if (/ERR_NAME_NOT_RESOLVED/i.test(classifiedMessage)) {
+        classifiedMessage = 'DNS resolution failed (host not found)';
+      } else if (/Navigation timeout/i.test(classifiedMessage)) {
+        classifiedMessage = 'Navigation timeout (page took too long to load)';
+      } else if (/net::ERR_CONNECTION_REFUSED/i.test(classifiedMessage)) {
+        classifiedMessage = 'Connection refused by host';
+      }
 
       // Return partial data with error information
       return {
@@ -122,7 +140,7 @@ export class PuppeteerService {
           loadEventEnd: Date.now(),
           domContentLoadedEventEnd: Date.now()
         },
-  errors: [error.message]
+        errors: [classifiedMessage]
       };
     } finally {
       // Always close browser
