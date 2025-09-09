@@ -19,27 +19,47 @@ const app: Application = express();
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 
-// CORS middleware
-// Normalize configured client origins (support comma-separated list) and strip trailing slashes
+// CORS middleware (improved)
+// Accept multiple origins (comma-separated). Normalize by removing trailing slashes.
 const configuredOrigins = (process.env.CLIENT_URL || 'http://localhost:3000')
   .split(',')
   .map(o => o.trim())
   .filter(Boolean)
   .map(o => o.replace(/\/$/, ''));
 
-app.use(cors({
-  origin: (origin, callback) => {
-    // Allow non-browser requests (like curl / server-to-server) with no origin
-    if (!origin) return callback(null, true);
-    const cleaned = origin.replace(/\/$/, '');
-    if (configuredOrigins.includes(cleaned)) {
-      return callback(null, true);
+// Helper to decide if origin allowed
+function isAllowedOrigin(origin?: string | null): boolean {
+  if (!origin) return true; // non-browser / same-origin
+  const cleaned = origin.replace(/\/$/, '');
+  if (configuredOrigins.includes(cleaned)) return true;
+  // Allow localhost variants automatically in development for convenience
+  if (process.env.NODE_ENV !== 'production' && /^(http:\/\/localhost:\d+)$/.test(cleaned)) return true;
+  return false;
+}
+
+app.use((req: Request, res: Response, next: NextFunction) => {
+  const origin = req.headers.origin;
+  if (isAllowedOrigin(origin)) {
+    if (origin) {
+      res.header('Access-Control-Allow-Origin', origin.replace(/\/$/, ''));
     }
-    return callback(new Error(`CORS: Origin ${origin} not allowed`));
-  },
-  credentials: true,
-  optionsSuccessStatus: 200,
-}));
+    res.header('Vary', 'Origin');
+    res.header('Access-Control-Allow-Credentials', 'true');
+    res.header('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS');
+    res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
+  }
+  // Preflight short‑circuit
+  if (req.method === 'OPTIONS') {
+    if (!isAllowedOrigin(origin)) {
+      return res.status(403).send('CORS: Origin not allowed');
+    }
+    return res.sendStatus(204);
+  }
+  if (origin && !isAllowedOrigin(origin)) {
+    return res.status(403).json({ success: false, error: 'CORS: Origin not allowed', origin });
+  }
+  next();
+});
 
 // Health check endpoint
 app.get('/health', (req: Request, res: Response) => {
