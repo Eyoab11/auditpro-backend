@@ -1,7 +1,7 @@
 // src/services/auditService.ts
 import AuditJob from '../models/AuditJob';
 import { JobProcessor } from '../utils/jobProcessor';
-import { AuditJobResponse, AuditResultsResponse, SubmitAuditResponse } from '../types';
+import { AuditJobResponse, AuditResultsResponse, SubmitAuditResponse, AuditHistoryResponse, AuditHistoryItem } from '../types';
 
 export class AuditService {
   static async createAuditJob(url: string, userId: string): Promise<SubmitAuditResponse> {
@@ -73,6 +73,33 @@ export class AuditService {
       }
       console.error('Error fetching audit results:', error.message);
       throw new Error('Failed to fetch audit results');
+    }
+  }
+
+  static async listUserAudits(userId: string, limit = 25, page = 1): Promise<AuditHistoryResponse> {
+    try {
+      const skip = (page - 1) * limit;
+      const [itemsRaw, total] = await Promise.all([
+        AuditJob.find({ user: userId })
+          .sort({ createdAt: -1 })
+          .skip(skip)
+          .limit(limit),
+        AuditJob.countDocuments({ user: userId })
+      ]);
+
+      const items: AuditHistoryItem[] = itemsRaw.map(job => ({
+        jobId: job._id as string,
+        url: job.url,
+        status: job.status as AuditHistoryItem['status'],
+        createdAt: job.createdAt,
+        updatedAt: job.updatedAt,
+        score: job.results?.healthScore ?? job.analysisData?.healthScore
+      }));
+
+      return { items, total };
+    } catch (error: any) {
+      console.error('Error listing audit jobs:', error.message);
+      throw new Error('Failed to list audit jobs');
     }
   }
 }

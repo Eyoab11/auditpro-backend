@@ -33,6 +33,21 @@ export interface SubmitAuditResponse {
   status: string;
 }
 
+// History list item
+export interface AuditHistoryItem {
+  jobId: string;
+  url: string;
+  status: 'pending' | 'scanning' | 'analyzing' | 'completed' | 'failed';
+  createdAt: Date;
+  updatedAt: Date;
+  score?: number; // optional convenience if results contain a health score
+}
+
+export interface AuditHistoryResponse {
+  items: AuditHistoryItem[];
+  total: number;
+}
+
 // Puppeteer Audit Types
 export interface DetectedScript {
   src: string;

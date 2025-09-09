@@ -3,7 +3,7 @@ import { Request, Response, NextFunction } from 'express';
 import { AuditService } from '../services/auditService';
 import { validateAuditRequest } from '../utils/validation';
 import { asyncHandler } from '../middleware/errorHandler';
-import { ApiResponse, SubmitAuditResponse, AuditJobResponse, AuditResultsResponse } from '../types';
+import { ApiResponse, SubmitAuditResponse, AuditJobResponse, AuditResultsResponse, AuditHistoryResponse } from '../types';
 
 export const submitAudit = asyncHandler(async (
   req: Request,
@@ -153,4 +153,23 @@ export const getAuditResults = asyncHandler(async (
 
     throw error;
   }
+});
+
+export const listAudits = asyncHandler(async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  const currentUserId = req.user?._id || req.user?.id;
+  if (!currentUserId) {
+    res.status(401).json({ success: false, error: 'Not authorized' });
+    return;
+  }
+
+  const limit = parseInt((req.query.limit as string) || '25', 10);
+  const page = parseInt((req.query.page as string) || '1', 10);
+
+  const result: AuditHistoryResponse = await AuditService.listUserAudits(currentUserId, limit, page);
+  const response: ApiResponse<AuditHistoryResponse> = { success: true, data: result };
+  res.json(response);
 });
