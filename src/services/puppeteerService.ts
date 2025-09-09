@@ -32,8 +32,10 @@ export class PuppeteerService {
       console.log(`🚀 Starting audit for ${url} (Job ID: ${jobId})`);
 
       // Launch browser with production-ready options
+      const executablePath = process.env.PUPPETEER_EXECUTABLE_PATH;
       browser = await puppeteer.launch({
         headless: true,
+        executablePath: executablePath || undefined,
         args: [
           '--no-sandbox',
           '--disable-setuid-sandbox',
@@ -41,7 +43,6 @@ export class PuppeteerService {
           '--disable-accelerated-2d-canvas',
           '--no-first-run',
           '--no-zygote',
-          '--single-process',
           '--disable-gpu'
         ]
       });

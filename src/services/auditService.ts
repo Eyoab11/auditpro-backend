@@ -93,7 +93,7 @@ export class AuditService {
         status: job.status as AuditHistoryItem['status'],
         createdAt: job.createdAt,
         updatedAt: job.updatedAt,
-        score: job.results?.healthScore ?? job.analysisData?.healthScore
+  score: job.results?.healthScore ?? job.analysisData?.healthScore
       }));
 
       return { items, total };

@@ -192,13 +192,20 @@ export class JobProcessor {
     const basicResults = this.processAuditResults(auditData);
 
     // Enhanced results from Python service
+    const findings = analysisResult.auditFindings || [];
+    const perf = analysisResult.performanceScores || {};
+    const processedTags = analysisResult.processedTags || [];
+
+    const healthScore = this.calculateHealthScore({ findings, perf, tags: processedTags });
+
     return {
       ...basicResults,
+      healthScore,
       analysis: {
         summary: analysisResult.auditSummary || {},
-        findings: analysisResult.auditFindings || [],
-        processedTags: analysisResult.processedTags || [],
-        performanceScores: analysisResult.performanceScores || {}
+        findings,
+        processedTags,
+        performanceScores: perf
       },
       metadata: {
         processedByPython: true,
@@ -231,6 +238,47 @@ export class JobProcessor {
     };
 
     return results;
+  }
+
+  private static calculateHealthScore(input: { findings: any[]; perf: any; tags: any[] }): number {
+    // Start from 100, subtract penalties
+    let score = 100;
+    const { findings, perf, tags } = input;
+
+    // Penalties based on findings severity
+    findings.forEach(f => {
+      switch (f.severity) {
+        case 'high': score -= 20; break;
+        case 'medium': score -= 12; break;
+        case 'low': score -= 5; break;
+        default:
+          if (f.type === 'issue') score -= 10;
+          else if (f.type === 'warning') score -= 6;
+      }
+    });
+
+    // Performance penalties
+    const load = perf.loadTimeMs || 0;
+    if (load > 8000) score -= 25; else if (load > 5000) score -= 15; else if (load > 3500) score -= 8; else if (load > 2500) score -= 4;
+    const lcp = perf.largestContentfulPaintMs || 0;
+    if (lcp > 6000) score -= 15; else if (lcp > 4000) score -= 10; else if (lcp > 2500) score -= 5;
+    const cls = perf.cumulativeLayoutShift;
+    if (typeof cls === 'number') {
+      if (cls > 0.4) score -= 10; else if (cls > 0.25) score -= 6; else if (cls > 0.1) score -= 3;
+    }
+
+    // Reward for presence of core tracking tags (up to +5)
+    const tagNames = new Set(tags.map((t: any) => t.name));
+    let bonus = 0;
+    if (tagNames.has('Google Analytics 4')) bonus += 2;
+    if (tagNames.has('Google Tag Manager')) bonus += 1;
+    if (tagNames.has('Meta Pixel')) bonus += 1;
+    if (tagNames.has('LinkedIn Insight Tag') || tagNames.has('Twitter Pixel')) bonus += 1;
+    score += Math.min(bonus, 5);
+
+    // Clamp and round
+    score = Math.max(1, Math.min(100, Math.round(score)));
+    return score;
   }
 
   // Get queue status for monitoring

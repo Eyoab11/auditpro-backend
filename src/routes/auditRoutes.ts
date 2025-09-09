@@ -5,6 +5,7 @@ import {
   getAuditStatus,
   getAuditResults,
   listAudits,
+  generateAuditPdf,
 } from '../controllers/auditController';
 import { protect } from '../middleware/auth';
 
@@ -24,6 +25,11 @@ router.get('/:jobId/status', protect, getAuditStatus);
 // @desc     Get the full results of a completed audit job
 // @access   Private
 router.get('/:jobId/results', protect, getAuditResults);
+
+// @route    GET /api/audit/:jobId/pdf
+// @desc     Download PDF report for a completed audit
+// @access   Private
+router.get('/:jobId/pdf', protect, generateAuditPdf);
 
 // @route    GET /api/audit
 // @desc     List current user's audit jobs (history)
