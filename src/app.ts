@@ -20,9 +20,25 @@ app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 
 // CORS middleware
+// Normalize configured client origins (support comma-separated list) and strip trailing slashes
+const configuredOrigins = (process.env.CLIENT_URL || 'http://localhost:3000')
+  .split(',')
+  .map(o => o.trim())
+  .filter(Boolean)
+  .map(o => o.replace(/\/$/, ''));
+
 app.use(cors({
-  origin: process.env.CLIENT_URL || 'http://localhost:3000',
+  origin: (origin, callback) => {
+    // Allow non-browser requests (like curl / server-to-server) with no origin
+    if (!origin) return callback(null, true);
+    const cleaned = origin.replace(/\/$/, '');
+    if (configuredOrigins.includes(cleaned)) {
+      return callback(null, true);
+    }
+    return callback(new Error(`CORS: Origin ${origin} not allowed`));
+  },
   credentials: true,
+  optionsSuccessStatus: 200,
 }));
 
 // Health check endpoint
