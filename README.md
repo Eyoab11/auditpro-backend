@@ -125,12 +125,10 @@ The backend includes a comprehensive Puppeteer-based crawling engine that perfor
    ```
 
 3. **Environment Configuration**:
-   - Copy the `.env` file and update the values:
-     ```env
-     PORT=5000
-     MONGODB_URI=your_mongodb_connection_string
-     JWT_SECRET=your_super_secret_jwt_key
-     ```
+  - Copy `.env.example` to `.env` and adjust values.
+  - For production (Render): set `MONGODB_URI`, `JWT_SECRET`, `PYTHON_SERVICE_URL`, `CLIENT_URL` in the dashboard.
+  - Do NOT hard‑code secrets in the repo.
+  - Render auto-assigns `PORT`; keep fallback in code (`process.env.PORT || 5000`).
 
 4. **Build the project**:
    ```bash
@@ -143,6 +141,23 @@ The backend includes a comprehensive Puppeteer-based crawling engine that perfor
    ```
 
 The server will start on `http://localhost:5000` (or the port specified in `.env`).
+
+### Deploying to Render (No Docker)
+
+This service is configured to run as a native Node web service (no Docker needed):
+
+1. Push repository to GitHub.
+2. In Render: New + Web Service → pick repo.
+3. Environment = Node, Build Command: `npm install && npm run build`, Start Command: `npm start`.
+4. Set Environment Variables:
+  - `NODE_ENV=production`
+  - `MONGODB_URI=...` (secret)
+  - `JWT_SECRET=...` (secret)
+  - `PYTHON_SERVICE_URL=https://<python-service>.onrender.com` (once that service is deployed)
+  - `CLIENT_URL=https://<frontend>.onrender.com` (or your custom domain)
+5. Deploy. Health check path `/health` returns JSON when healthy.
+
+If you ever reintroduce Docker, ensure devDependencies are available during the build (multi-stage or omit `--only=production`).
 
 ## API Endpoints
 

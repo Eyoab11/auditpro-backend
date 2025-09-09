@@ -1,5 +1,5 @@
 // src/app.ts
-import express, { Application } from 'express';
+import express, { Application, Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 
@@ -26,7 +26,7 @@ app.use(cors({
 }));
 
 // Health check endpoint
-app.get('/health', (req, res) => {
+app.get('/health', (req: Request, res: Response) => {
   res.status(200).json({
     success: true,
     message: 'AuditPro Backend is running',
@@ -35,7 +35,7 @@ app.get('/health', (req, res) => {
 });
 
 // Job queue status endpoint (for monitoring)
-app.get('/api/jobs/status', (req, res) => {
+app.get('/api/jobs/status', (req: Request, res: Response) => {
   const { JobProcessor } = require('./utils/jobProcessor');
   const status = JobProcessor.getQueueStatus();
 
@@ -50,11 +50,8 @@ app.use('/api/audit', auditRoutes);
 app.use('/api/auth', authRoutes);
 
 // 404 handler for undefined routes
-app.use((req, res) => {
-  res.status(404).json({
-    success: false,
-    error: 'Route not found',
-  });
+app.use((req: Request, res: Response) => {
+  res.status(404).json({ success: false, error: 'Route not found' });
 });
 
 // Global error handler (must be last)

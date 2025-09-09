@@ -4,11 +4,17 @@ import { Request, Response, NextFunction } from 'express';
 import User from '../models/User';
 
 // Extend Express Request interface to include user
-declare global {
-  namespace Express {
-    interface Request {
-      user?: any;
-    }
+interface AuthUser {
+  _id: string;
+  id?: string; // convenience when coming from decoded token
+  role?: string;
+  email?: string;
+  name?: string;
+}
+
+declare module 'express-serve-static-core' {
+  interface Request {
+    user?: AuthUser;
   }
 }
 
@@ -34,9 +40,12 @@ export const protect = async (req: Request, res: Response, next: NextFunction) =
 
   try {
     // Verify token
-    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'defaultsecret') as any;
-
-    req.user = await User.findById(decoded.id);
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'defaultsecret') as { id: string };
+    const found = await User.findById(decoded.id).select('_id email name');
+    if (!found) {
+      return res.status(401).json({ success: false, error: 'Not authorized to access this route' });
+    }
+  req.user = { _id: (found._id as unknown as string).toString(), email: found.email, name: found.name };
 
     next();
   } catch (err) {
@@ -57,7 +66,7 @@ export const authorize = (...roles: string[]) => {
       });
     }
 
-    if (!roles.includes(req.user.role)) {
+  if (req.user.role && !roles.includes(req.user.role)) {
       return res.status(403).json({
         success: false,
         error: `User role ${req.user.role} is not authorized to access this route`

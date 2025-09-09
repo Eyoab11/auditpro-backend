@@ -22,7 +22,11 @@ export const submitAudit = asyncHandler(async (
   }
 
   const { url } = req.body;
-  const userId = req.user.id; // Get user ID from authenticated request
+  const userId = req.user?._id || req.user?.id; // Get user ID from authenticated request
+  if (!userId) {
+    res.status(401).json({ success: false, error: 'Not authorized' });
+    return;
+  }
   const result: SubmitAuditResponse = await AuditService.createAuditJob(url, userId);
 
   const response: ApiResponse<SubmitAuditResponse> = {
@@ -50,7 +54,12 @@ export const getAuditStatus = asyncHandler(async (
   }
 
   try {
-    const result: AuditJobResponse = await AuditService.getAuditStatus(jobId, req.user.id);
+    const currentUserId = req.user?._id || req.user?.id;
+    if (!currentUserId) {
+      res.status(401).json({ success: false, error: 'Not authorized' });
+      return;
+    }
+    const result: AuditJobResponse = await AuditService.getAuditStatus(jobId, currentUserId);
 
     const response: ApiResponse<AuditJobResponse> = {
       success: true,
@@ -99,7 +108,12 @@ export const getAuditResults = asyncHandler(async (
   }
 
   try {
-    const result: AuditResultsResponse = await AuditService.getAuditResults(jobId, req.user.id);
+    const currentUserId = req.user?._id || req.user?.id;
+    if (!currentUserId) {
+      res.status(401).json({ success: false, error: 'Not authorized' });
+      return;
+    }
+    const result: AuditResultsResponse = await AuditService.getAuditResults(jobId, currentUserId);
 
     const response: ApiResponse<AuditResultsResponse> = {
       success: true,
