@@ -4,7 +4,7 @@ import { AuditService } from '../services/auditService';
 import { validateAuditRequest } from '../utils/validation';
 import { asyncHandler } from '../middleware/errorHandler';
 import { ApiResponse, SubmitAuditResponse, AuditJobResponse, AuditResultsResponse, AuditHistoryResponse } from '../types';
-import puppeteer from 'puppeteer';
+import puppeteer from 'puppeteer-core';
 
 export const submitAudit = asyncHandler(async (
   req: Request,
