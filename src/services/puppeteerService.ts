@@ -1,5 +1,6 @@
 // src/services/puppeteerService.ts
 import puppeteer, { Browser, Page } from 'puppeteer';
+import { execSync } from 'child_process';
 import {
   RawAuditData,
   DetectedScript,
@@ -32,7 +33,17 @@ export class PuppeteerService {
       console.log(`🚀 Starting audit for ${url} (Job ID: ${jobId})`);
 
       // Launch browser with production-ready options
-      const executablePath = process.env.PUPPETEER_EXECUTABLE_PATH;
+      let executablePath = process.env.PUPPETEER_EXECUTABLE_PATH;
+      if (!executablePath) {
+        try {
+          // Try querying puppeteer for installed chrome path (Puppeteer v24 provides browsers API via CLI)
+          // Fallback to common linux path
+          const possible = ['/usr/bin/google-chrome-stable','/usr/bin/chromium','/usr/bin/chromium-browser'];
+          for (const p of possible) {
+            try { execSync(`test -x ${p}`); executablePath = p; break; } catch { /* ignore */ }
+          }
+        } catch { /* ignore */ }
+      }
       browser = await puppeteer.launch({
         headless: true,
         executablePath: executablePath || undefined,
@@ -110,6 +121,9 @@ export class PuppeteerService {
 
     } catch (error: any) {
       console.error(`❌ Audit failed for ${url}:`, error.message);
+      if (error.message && error.message.includes('Could not find Chrome')) {
+        console.error('ℹ️ Resolution: run "npx puppeteer browsers install chrome" or set PUPPETEER_EXECUTABLE_PATH to a valid Chromium binary path.');
+      }
 
       // Return partial data with error information
       return {
@@ -125,7 +139,7 @@ export class PuppeteerService {
           loadEventEnd: Date.now(),
           domContentLoadedEventEnd: Date.now()
         },
-        errors: [error.message]
+  errors: [error.message]
       };
     } finally {
       // Always close browser
