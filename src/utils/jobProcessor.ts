@@ -69,19 +69,21 @@ export class JobProcessor {
 
       } catch (error: any) {
         console.error(`❌ Job ${job.id} failed:`, error.message);
-
-        job.retries++;
+        // If error flagged as unrecoverable, don't retry
+        if ((error as any)?.noRetry) {
+          job.retries = this.maxRetries; // force stop
+          console.log(`⛔ Not retrying job ${job.id} due to unrecoverable error.`);
+        } else {
+          job.retries++;
+        }
 
         if (job.retries < this.maxRetries) {
           console.log(`🔄 Retrying job ${job.id} (attempt ${job.retries + 1}/${this.maxRetries})`);
-          // Add back to queue with delay
           setTimeout(() => {
             this.jobQueue.unshift(job);
-          }, 5000 * job.retries); // Exponential backoff
+          }, 5000 * job.retries);
         } else {
           console.error(`💀 Job ${job.id} failed permanently after ${this.maxRetries} retries`);
-
-          // Mark job as failed in database
           if (job.type === 'audit') {
             try {
               const AuditJob = (await import('../models/AuditJob')).default;
@@ -106,10 +108,25 @@ export class JobProcessor {
     const { jobId, url } = job.data;
 
     // Use dynamic imports to avoid circular dependency
-    const { PuppeteerService } = await import('../services/puppeteerService');
-    const AuditJob = (await import('../models/AuditJob')).default;
+  const { PuppeteerService } = await import('../services/puppeteerService');
+  const AuditJob = (await import('../models/AuditJob')).default;
+  const { preflightUrlReachability } = await import('./network');
 
     try {
+      // Preflight DNS reachability to prevent futile Puppeteer launches
+      const preflight = await preflightUrlReachability(url);
+      if (!preflight.reachable) {
+        console.warn(`🌐 Preflight failed for ${url}: ${preflight.reason}`);
+        await AuditJob.findByIdAndUpdate(jobId, {
+          status: 'failed',
+          errorMessage: preflight.reason || 'Unreachable host',
+          updatedAt: new Date()
+        });
+        const err: any = new Error(`Unreachable host: ${preflight.reason}`);
+        err.noRetry = true;
+        throw err;
+      }
+
       // Update status to scanning
       await AuditJob.findByIdAndUpdate(jobId, {
         status: 'scanning',
@@ -161,12 +178,16 @@ export class JobProcessor {
         console.error(error.stack.split('\n').slice(0,6).join('\n'));
       }
 
-      // Update job with error status
-      await AuditJob.findByIdAndUpdate(jobId, {
-        status: 'failed',
-        errorMessage: error.message,
-        updatedAt: new Date()
-      });
+      // Update job with error status (if not already set by preflight)
+      try {
+        await AuditJob.findByIdAndUpdate(jobId, {
+          status: 'failed',
+          errorMessage: error.message,
+          updatedAt: new Date()
+        });
+      } catch (dbErr) {
+        console.error('Failed to persist failure status:', (dbErr as any)?.message);
+      }
 
       throw error;
     }
