@@ -5,53 +5,77 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.PuppeteerService = void 0;
 // src/services/puppeteerService.ts
-const puppeteer_1 = __importDefault(require("puppeteer"));
+const puppeteer_core_1 = __importDefault(require("puppeteer-core"));
+const chromium_1 = __importDefault(require("@sparticuz/chromium"));
 class PuppeteerService {
     static async performAudit(url, jobId) {
         let browser = null;
         let page = null;
         try {
             console.log(`🚀 Starting audit for ${url} (Job ID: ${jobId})`);
-            // Launch browser with production-ready options
-            browser = await puppeteer_1.default.launch({
-                headless: true,
-                args: [
-                    '--no-sandbox',
-                    '--disable-setuid-sandbox',
-                    '--disable-dev-shm-usage',
-                    '--disable-accelerated-2d-canvas',
-                    '--no-first-run',
-                    '--no-zygote',
-                    '--single-process',
-                    '--disable-gpu'
-                ]
+            // Use @sparticuz/chromium for launching browser
+            browser = await puppeteer_core_1.default.launch({
+                args: chromium_1.default.args,
+                defaultViewport: chromium_1.default.defaultViewport,
+                executablePath: await chromium_1.default.executablePath(),
+                headless: chromium_1.default.headless,
+                ignoreHTTPSErrors: true,
             });
             page = await browser.newPage();
+            // Reduce memory footprint
+            await page.setCacheEnabled(false);
             // Set user agent to avoid bot detection
             await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36');
             // Initialize data collection
             const detectedScripts = [];
             const networkRequests = [];
             const injectedTags = [];
-            // Monitor network requests
+            // Intercept requests to skip heavy assets and cap memory use
+            await page.setRequestInterception(true);
             page.on('request', (request) => {
-                const requestUrl = request.url();
-                const resourceType = request.resourceType();
-                // Track relevant network requests
-                if (this.isTrackingRequest(requestUrl) || ['script', 'xhr', 'fetch'].includes(resourceType)) {
-                    networkRequests.push({
-                        url: requestUrl,
-                        type: resourceType,
-                        initiator: request.frame()?.url() || url
-                    });
+                try {
+                    const requestUrl = request.url();
+                    const resourceType = request.resourceType();
+                    // Abort heavy, non-essential assets to save memory/CPU
+                    if (['image', 'media', 'font', 'stylesheet'].includes(resourceType)) {
+                        request.abort();
+                    }
+                    else {
+                        request.continue();
+                    }
+                    // Track relevant network requests (cap to 200 to prevent large arrays)
+                    if ((this.isTrackingRequest(requestUrl) || ['script', 'xhr', 'fetch'].includes(resourceType)) &&
+                        networkRequests.length < 200) {
+                        networkRequests.push({
+                            url: requestUrl,
+                            type: resourceType,
+                            initiator: request.frame()?.url() || url
+                        });
+                    }
+                }
+                catch {
+                    // best-effort; ignore
                 }
             });
-            // Navigate to the page
+            // Navigate to the page with graceful fallback
             console.log(`📄 Navigating to ${url}`);
-            await page.goto(url, {
-                waitUntil: 'networkidle0',
-                timeout: 30000
-            });
+            try {
+                await page.goto(url, { waitUntil: 'networkidle0', timeout: 30000 });
+            }
+            catch (navErr) {
+                if (navErr?.message?.includes('Navigation timeout')) {
+                    console.warn(`⏱️ networkidle0 timeout for ${url}. Retrying with 'domcontentloaded'.`);
+                    try {
+                        await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 15000 });
+                    }
+                    catch (secondErr) {
+                        throw secondErr; // propagate second failure
+                    }
+                }
+                else {
+                    throw navErr; // non-timeout error (e.g., DNS) propagate directly
+                }
+            }
             // Wait a bit for dynamic content to load
             await new Promise(resolve => setTimeout(resolve, 2000));
             // Extract HTML content
@@ -76,6 +100,19 @@ class PuppeteerService {
         }
         catch (error) {
             console.error(`❌ Audit failed for ${url}:`, error.message);
+            if (error.message && error.message.includes('Could not find Chrome')) {
+                console.error('ℹ️ Resolution: run "npx puppeteer browsers install chrome" or set PUPPETEER_EXECUTABLE_PATH to a valid Chromium binary path.');
+            }
+            let classifiedMessage = error.message || 'Unknown error';
+            if (/ERR_NAME_NOT_RESOLVED/i.test(classifiedMessage)) {
+                classifiedMessage = 'DNS resolution failed (host not found)';
+            }
+            else if (/Navigation timeout/i.test(classifiedMessage)) {
+                classifiedMessage = 'Navigation timeout (page took too long to load)';
+            }
+            else if (/net::ERR_CONNECTION_REFUSED/i.test(classifiedMessage)) {
+                classifiedMessage = 'Connection refused by host';
+            }
             // Return partial data with error information
             return {
                 url,
@@ -90,7 +127,7 @@ class PuppeteerService {
                     loadEventEnd: Date.now(),
                     domContentLoadedEventEnd: Date.now()
                 },
-                errors: [error.message]
+                errors: [classifiedMessage]
             };
         }
         finally {
@@ -122,8 +159,8 @@ class PuppeteerService {
                     type: script.src ? 'script' : 'inline',
                     location: script.closest('head') ? 'head' : 'body',
                     async: script.async,
-                    defer: script.defer,
-                    innerHTML: script.innerHTML
+                    defer: script.defer
+                    // Intentionally omit innerHTML to avoid huge payloads
                 }));
             });
             detectedScripts.push(...scripts);

@@ -26,6 +26,8 @@ export class JobProcessor {
   private static initialPythonServiceUrl = process.env.PYTHON_SERVICE_URL || 'http://localhost:5001';
   // Global rate-limit cooldown until timestamp (ms since epoch)
   private static rateLimitUntil: number | null = null;
+  // Cache raw scan data per job to avoid re-running Puppeteer on retries
+  private static scanCache: Map<string, any> = new Map();
 
   private static getPythonServiceUrl(): string {
     const envUrl = process.env.PYTHON_SERVICE_URL;
@@ -167,16 +169,34 @@ export class JobProcessor {
         throw err;
       }
 
-      // Update status to scanning
-      await AuditJob.findByIdAndUpdate(jobId, {
-        status: 'scanning',
-        updatedAt: new Date()
-      });
+      // If we're currently rate-limited and we don't already have a scan cached, defer before scanning
+      if (this.rateLimitUntil && Date.now() < this.rateLimitUntil && !this.scanCache.has(jobId)) {
+        const remaining = Math.max(0, this.rateLimitUntil - Date.now());
+        const err: any = new Error('Deferred due to global rate-limit cooldown');
+        err.isRateLimit = true;
+        err.retryAfterSeconds = Math.ceil(remaining / 1000);
+        throw err;
+      }
 
-      console.log(`🔍 Starting Puppeteer audit for ${url}`);
+      let auditData: any | null = null;
+      if (this.scanCache.has(jobId)) {
+        console.log(`♻️  Reusing cached scan data for ${url} (Job ID: ${jobId})`);
+        auditData = this.scanCache.get(jobId);
+      }
+
+      if (!auditData) {
+        // Update status to scanning only when actually performing a new scan
+        await AuditJob.findByIdAndUpdate(jobId, {
+          status: 'scanning',
+          updatedAt: new Date()
+        });
+        console.log(`🔍 Starting Puppeteer audit for ${url}`);
 
       // Perform the audit
-      const auditData = await PuppeteerService.performAudit(url, jobId);
+        auditData = await PuppeteerService.performAudit(url, jobId);
+        // Cache for potential retries due to rate-limit
+        this.scanCache.set(jobId, auditData);
+      }
 
       if (auditData.errors && auditData.errors.length > 0) {
         throw new Error(`Puppeteer scan failed: ${auditData.errors.join(', ')}`);
@@ -214,7 +234,9 @@ export class JobProcessor {
         updatedAt: new Date()
       });
 
-      console.log(`📊 Audit completed for job ${jobId} with ${analysisResult.auditFindings?.length || 0} findings`);
+  console.log(`📊 Audit completed for job ${jobId} with ${analysisResult.auditFindings?.length || 0} findings`);
+  // Clear cache on success
+  this.scanCache.delete(jobId);
 
     } catch (error: any) {
       console.error(`Audit processing failed for job ${jobId}:`, error.message);
@@ -235,12 +257,15 @@ export class JobProcessor {
             errorMessage: `Rate limited by analysis service. Will retry${typeof retryAfter === 'number' ? ` in ~${retryAfter}s` : ' shortly'}...`,
             updatedAt: new Date()
           });
+          // Keep cached scan for next retry
         } else {
           await AuditJob.findByIdAndUpdate(jobId, {
             status: 'failed',
             errorMessage: error.message,
             updatedAt: new Date()
           });
+          // Clear cache on non-rate-limit failure
+          this.scanCache.delete(jobId);
         }
       } catch (dbErr) {
         console.error('Failed to persist failure status:', (dbErr as any)?.message);

@@ -73,6 +73,31 @@ class AuditService {
             throw new Error('Failed to fetch audit results');
         }
     }
+    static async listUserAudits(userId, limit = 25, page = 1) {
+        try {
+            const skip = (page - 1) * limit;
+            const [itemsRaw, total] = await Promise.all([
+                AuditJob_1.default.find({ user: userId })
+                    .sort({ createdAt: -1 })
+                    .skip(skip)
+                    .limit(limit),
+                AuditJob_1.default.countDocuments({ user: userId })
+            ]);
+            const items = itemsRaw.map(job => ({
+                jobId: job._id,
+                url: job.url,
+                status: job.status,
+                createdAt: job.createdAt,
+                updatedAt: job.updatedAt,
+                score: job.results?.healthScore ?? job.analysisData?.healthScore
+            }));
+            return { items, total };
+        }
+        catch (error) {
+            console.error('Error listing audit jobs:', error.message);
+            throw new Error('Failed to list audit jobs');
+        }
+    }
 }
 exports.AuditService = AuditService;
 //# sourceMappingURL=auditService.js.map

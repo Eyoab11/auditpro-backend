@@ -17,5 +17,13 @@ router.get('/:jobId/status', auth_1.protect, auditController_1.getAuditStatus);
 // @desc     Get the full results of a completed audit job
 // @access   Private
 router.get('/:jobId/results', auth_1.protect, auditController_1.getAuditResults);
+// @route    GET /api/audit/:jobId/pdf
+// @desc     Download PDF report for a completed audit
+// @access   Private
+router.get('/:jobId/pdf', auth_1.protect, auditController_1.generateAuditPdf);
+// @route    GET /api/audit
+// @desc     List current user's audit jobs (history)
+// @access   Private
+router.get('/', auth_1.protect, auditController_1.listAudits);
 exports.default = router;
 //# sourceMappingURL=auditRoutes.js.map
