@@ -74,14 +74,30 @@ export class JobProcessor {
           job.retries = this.maxRetries; // force stop
           console.log(`⛔ Not retrying job ${job.id} due to unrecoverable error.`);
         } else {
+          // increment retry counter (will be used to limit attempts)
           job.retries++;
         }
 
+        // determine retry timing. If error indicates rate limiting, honor Retry-After when available
+        const isRateLimit = !!(error as any)?.isRateLimit;
+        const retryAfterSeconds = (error as any)?.retryAfterSeconds as number | undefined;
+
         if (job.retries < this.maxRetries) {
-          console.log(`🔄 Retrying job ${job.id} (attempt ${job.retries + 1}/${this.maxRetries})`);
+          // base exponential/backoff delay (ms)
+          let retryDelayMs = 5000 * job.retries;
+          if (isRateLimit) {
+            if (typeof retryAfterSeconds === 'number' && retryAfterSeconds > 0) {
+              retryDelayMs = retryAfterSeconds * 1000;
+            } else {
+              // longer backoff for unknown Retry-After (guarded, capped)
+              retryDelayMs = Math.min(120000, 15000 * job.retries);
+            }
+          }
+
+          console.log(`🔄 Retrying job ${job.id} (attempt ${job.retries + 1}/${this.maxRetries}) in ${retryDelayMs}ms`);
           setTimeout(() => {
             this.jobQueue.unshift(job);
-          }, 5000 * job.retries);
+          }, retryDelayMs);
         } else {
           console.error(`💀 Job ${job.id} failed permanently after ${this.maxRetries} retries`);
           if (job.type === 'audit') {
@@ -205,6 +221,27 @@ export class JobProcessor {
         validateStatus: s => s < 500 // surface 4xx for logging
       });
 
+      if (response.status === 429) {
+        // construct a specialized error so callers can inspect rate-limit info
+        const err: any = new Error(`Python analysis HTTP 429: ${JSON.stringify(response.data).slice(0,400)}`);
+        err.isRateLimit = true;
+        // honor Retry-After if provided (seconds or HTTP-date)
+        const retryAfter = response.headers?.['retry-after'];
+        if (retryAfter) {
+          const parsed = Number(retryAfter);
+          if (!Number.isNaN(parsed)) {
+            err.retryAfterSeconds = parsed;
+          } else {
+            // try HTTP-date parse
+            const date = Date.parse(String(retryAfter));
+            if (!Number.isNaN(date)) {
+              err.retryAfterSeconds = Math.max(0, Math.ceil((date - Date.now()) / 1000));
+            }
+          }
+        }
+        throw err;
+      }
+
       if (response.status >= 400) {
         throw new Error(`Python analysis HTTP ${response.status}: ${JSON.stringify(response.data).slice(0,400)}`);
       }
@@ -215,6 +252,21 @@ export class JobProcessor {
       if (error?.response) {
         console.error('Raw response status:', error.response.status);
         console.error('Raw response body:', JSON.stringify(error.response.data));
+        // if rate limited, surface special flags
+        if (error.response.status === 429) {
+          const rateErr: any = new Error(`Python analysis HTTP 429: ${JSON.stringify(error.response.data).slice(0,400)}`);
+          rateErr.isRateLimit = true;
+          const retryAfter = error.response.headers?.['retry-after'];
+          if (retryAfter) {
+            const parsed = Number(retryAfter);
+            if (!Number.isNaN(parsed)) rateErr.retryAfterSeconds = parsed;
+            else {
+              const date = Date.parse(String(retryAfter));
+              if (!Number.isNaN(date)) rateErr.retryAfterSeconds = Math.max(0, Math.ceil((date - Date.now()) / 1000));
+            }
+          }
+          throw rateErr;
+        }
       }
 
       if (error.code === 'ECONNREFUSED') {
@@ -225,7 +277,7 @@ export class JobProcessor {
         throw new Error(`Python analysis failed: ${error.response.data?.message || error.response.statusText}`);
       }
 
-  throw new Error(`Python analysis request failed: ${error.message}`);
+      throw new Error(`Python analysis request failed: ${error.message}`);
     }
   }
 
