@@ -17,7 +17,11 @@ interface Job {
 export class JobProcessor {
   private static jobQueue: Job[] = [];
   private static isProcessing = false;
-  private static maxRetries = 5;
+  // Defaults can be tuned via environment variables without code changes
+  private static getMaxRetries(): number { return Number(process.env.MAX_RETRIES) || 5; }
+  private static getBaseBackoffMs(): number { return Number(process.env.BASE_BACKOFF_MS) || 5000; }
+  private static getRateLimitBackoffBaseMs(): number { return Number(process.env.RATE_LIMIT_BACKOFF_BASE_MS) || 15000; }
+  private static getRateLimitBackoffMaxMs(): number { return Number(process.env.RATE_LIMIT_BACKOFF_MAX_MS) || 120000; }
   // Keep initial value but prefer dynamic lookup each call in case env injected after start
   private static initialPythonServiceUrl = process.env.PYTHON_SERVICE_URL || 'http://localhost:5001';
 
@@ -68,44 +72,56 @@ export class JobProcessor {
         console.log(`✅ Job ${job.id} completed successfully`);
 
       } catch (error: any) {
-        console.error(`❌ Job ${job.id} failed:`, error.message);
+        const isRateLimit = !!(error as any)?.isRateLimit;
+        const retryAfterSeconds = (error as any)?.retryAfterSeconds as number | undefined;
+        if (isRateLimit) {
+          const waitMsg = typeof retryAfterSeconds === 'number' && retryAfterSeconds > 0
+            ? `${retryAfterSeconds}s`
+            : `${Math.min(120, 15 * Math.max(1, job.retries))}s (no Retry-After)`;
+          console.warn(`⏳ Job ${job.id} rate-limited by Python service (429). Will retry after ${waitMsg}.`);
+        } else {
+          console.error(`❌ Job ${job.id} failed:`, error.message);
+        }
         // If error flagged as unrecoverable, don't retry
         if ((error as any)?.noRetry) {
-          job.retries = this.maxRetries; // force stop
+          job.retries = this.getMaxRetries(); // force stop
           console.log(`⛔ Not retrying job ${job.id} due to unrecoverable error.`);
         } else {
           // increment retry counter (will be used to limit attempts)
           job.retries++;
         }
 
-        // determine retry timing. If error indicates rate limiting, honor Retry-After when available
-        const isRateLimit = !!(error as any)?.isRateLimit;
-        const retryAfterSeconds = (error as any)?.retryAfterSeconds as number | undefined;
-
-        if (job.retries < this.maxRetries) {
+        if (job.retries < this.getMaxRetries()) {
           // base exponential/backoff delay (ms)
-          let retryDelayMs = 5000 * job.retries;
+          let retryDelayMs = this.getBaseBackoffMs() * job.retries;
           if (isRateLimit) {
             if (typeof retryAfterSeconds === 'number' && retryAfterSeconds > 0) {
               retryDelayMs = retryAfterSeconds * 1000;
             } else {
               // longer backoff for unknown Retry-After (guarded, capped)
-              retryDelayMs = Math.min(120000, 15000 * job.retries);
+              retryDelayMs = Math.min(this.getRateLimitBackoffMaxMs(), this.getRateLimitBackoffBaseMs() * job.retries);
             }
           }
 
-          console.log(`🔄 Retrying job ${job.id} (attempt ${job.retries + 1}/${this.maxRetries}) in ${retryDelayMs}ms`);
+          const attempt = job.retries + 1;
+          if (isRateLimit) {
+            console.log(`🔁 Requeue due to rate-limit: job ${job.id} (attempt ${attempt}/${this.getMaxRetries()}) in ${retryDelayMs}ms`);
+          } else {
+            console.log(`🔄 Retrying job ${job.id} (attempt ${attempt}/${this.getMaxRetries()}) in ${retryDelayMs}ms`);
+          }
           setTimeout(() => {
             this.jobQueue.unshift(job);
+            // restart processing loop after delayed re-enqueue
+            this.processQueue();
           }, retryDelayMs);
         } else {
-          console.error(`💀 Job ${job.id} failed permanently after ${this.maxRetries} retries`);
+          console.error(`💀 Job ${job.id} failed permanently after ${this.getMaxRetries()} retries`);
           if (job.type === 'audit') {
             try {
               const AuditJob = (await import('../models/AuditJob')).default;
               await AuditJob.findByIdAndUpdate(job.data.jobId, {
                 status: 'failed',
-                errorMessage: `Job processing failed after ${this.maxRetries} retries: ${error.message}`,
+                errorMessage: `Job processing failed after ${this.getMaxRetries()} retries: ${error.message}`,
                 updatedAt: new Date()
               });
             } catch (dbError) {
