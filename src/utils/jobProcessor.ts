@@ -24,10 +24,18 @@ export class JobProcessor {
   private static getRateLimitBackoffMaxMs(): number { return Number(process.env.RATE_LIMIT_BACKOFF_MAX_MS) || 120000; }
   // Keep initial value but prefer dynamic lookup each call in case env injected after start
   private static initialPythonServiceUrl = process.env.PYTHON_SERVICE_URL || 'http://localhost:5001';
+  // Global rate-limit cooldown until timestamp (ms since epoch)
+  private static rateLimitUntil: number | null = null;
 
   private static getPythonServiceUrl(): string {
     const envUrl = process.env.PYTHON_SERVICE_URL;
     return (envUrl && envUrl.trim().length > 0 ? envUrl.trim() : this.initialPythonServiceUrl).replace(/\/$/, '');
+  }
+  private static getGlobalCooldownMs(): number { return Number(process.env.RATE_LIMIT_GLOBAL_COOLDOWN_MS) || 60000; }
+  private static addJitter(ms: number): number {
+    const delta = Math.floor(ms * 0.2); // ±20%
+    const jitter = Math.floor((Math.random() * 2 - 1) * delta);
+    return Math.max(1000, ms + jitter);
   }
 
   static addAuditJob(jobId: string, url: string): void {
@@ -184,6 +192,15 @@ export class JobProcessor {
   console.log(`🧠 Starting Python analysis for ${url}`);
   console.log(`🔧 Using PYTHON_SERVICE_URL=${this.getPythonServiceUrl()}`);
 
+      // If we are in a global rate-limit cooldown window, requeue before calling service
+      if (this.rateLimitUntil && Date.now() < this.rateLimitUntil) {
+        const remaining = Math.max(0, this.rateLimitUntil - Date.now());
+        const err: any = new Error('Deferred due to global rate-limit cooldown');
+        err.isRateLimit = true;
+        err.retryAfterSeconds = Math.ceil(remaining / 1000);
+        throw err;
+      }
+
       // Send data to Python service for analysis
   const analysisResult = await this.callPythonAnalysis(auditData);
 
@@ -264,6 +281,12 @@ export class JobProcessor {
             }
           }
         }
+        // Set global cooldown if Retry-After missing
+        if (typeof err.retryAfterSeconds !== 'number') {
+          this.rateLimitUntil = Date.now() + this.getGlobalCooldownMs();
+        } else {
+          this.rateLimitUntil = Date.now() + err.retryAfterSeconds * 1000;
+        }
         throw err;
       }
 
@@ -294,6 +317,11 @@ export class JobProcessor {
               if (!Number.isNaN(date)) rateErr.retryAfterSeconds = Math.max(0, Math.ceil((date - Date.now()) / 1000));
             }
           }
+          if (typeof rateErr.retryAfterSeconds !== 'number') {
+            this.rateLimitUntil = Date.now() + this.getGlobalCooldownMs();
+          } else {
+            this.rateLimitUntil = Date.now() + rateErr.retryAfterSeconds * 1000;
+          }
           throw rateErr;
         }
       }
@@ -310,6 +338,8 @@ export class JobProcessor {
       if (msg.includes('HTTP 429')) {
         const rateErr: any = new Error(msg);
         rateErr.isRateLimit = true;
+        // Set default cooldown when we can’t parse Retry-After
+        this.rateLimitUntil = Date.now() + this.getGlobalCooldownMs();
         throw rateErr;
       }
 
