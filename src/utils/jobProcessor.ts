@@ -182,10 +182,9 @@ export class JobProcessor {
         throw new Error(`Puppeteer scan failed: ${auditData.errors.join(', ')}`);
       }
 
-      // Update status to analyzing
+      // Update status to analyzing (avoid storing heavy rawScanData to reduce memory/DB churn)
       await AuditJob.findByIdAndUpdate(jobId, {
         status: 'analyzing',
-        rawScanData: auditData,
         updatedAt: new Date()
       });
 

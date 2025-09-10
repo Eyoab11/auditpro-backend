@@ -41,7 +41,9 @@ export class PuppeteerService {
         ignoreHTTPSErrors: true,
       });
 
-      page = await browser.newPage();
+  page = await browser.newPage();
+  // Reduce memory footprint
+  await page.setCacheEnabled(false);
 
       // Set user agent to avoid bot detection
       await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36');
@@ -51,18 +53,31 @@ export class PuppeteerService {
       const networkRequests: NetworkRequest[] = [];
       const injectedTags: InjectedTag[] = [];
 
-      // Monitor network requests
+      // Intercept requests to skip heavy assets and cap memory use
+      await page.setRequestInterception(true);
       page.on('request', (request) => {
-        const requestUrl = request.url();
-        const resourceType = request.resourceType();
-
-        // Track relevant network requests
-        if (this.isTrackingRequest(requestUrl) || ['script', 'xhr', 'fetch'].includes(resourceType)) {
-          networkRequests.push({
-            url: requestUrl,
-            type: resourceType as any,
-            initiator: request.frame()?.url() || url
-          });
+        try {
+          const requestUrl = request.url();
+          const resourceType = request.resourceType();
+          // Abort heavy, non-essential assets to save memory/CPU
+          if (['image', 'media', 'font', 'stylesheet'].includes(resourceType)) {
+            request.abort();
+          } else {
+            request.continue();
+          }
+          // Track relevant network requests (cap to 200 to prevent large arrays)
+          if (
+            (this.isTrackingRequest(requestUrl) || ['script', 'xhr', 'fetch'].includes(resourceType)) &&
+            networkRequests.length < 200
+          ) {
+            networkRequests.push({
+              url: requestUrl,
+              type: resourceType as any,
+              initiator: request.frame()?.url() || url
+            });
+          }
+        } catch {
+          // best-effort; ignore
         }
       });
 
@@ -170,8 +185,8 @@ export class PuppeteerService {
           type: script.src ? 'script' : 'inline',
           location: script.closest('head') ? 'head' : 'body',
           async: script.async,
-          defer: script.defer,
-          innerHTML: script.innerHTML
+          defer: script.defer
+          // Intentionally omit innerHTML to avoid huge payloads
         }));
       });
 
