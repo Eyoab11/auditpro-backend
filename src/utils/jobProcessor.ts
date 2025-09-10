@@ -17,7 +17,7 @@ interface Job {
 export class JobProcessor {
   private static jobQueue: Job[] = [];
   private static isProcessing = false;
-  private static maxRetries = 3;
+  private static maxRetries = 5;
   // Keep initial value but prefer dynamic lookup each call in case env injected after start
   private static initialPythonServiceUrl = process.env.PYTHON_SERVICE_URL || 'http://localhost:5001';
 
@@ -196,11 +196,20 @@ export class JobProcessor {
 
       // Update job with error status (if not already set by preflight)
       try {
-        await AuditJob.findByIdAndUpdate(jobId, {
-          status: 'failed',
-          errorMessage: error.message,
-          updatedAt: new Date()
-        });
+        if ((error as any)?.isRateLimit) {
+          const retryAfter = (error as any)?.retryAfterSeconds;
+          await AuditJob.findByIdAndUpdate(jobId, {
+            status: 'analyzing',
+            errorMessage: `Rate limited by analysis service. Will retry${typeof retryAfter === 'number' ? ` in ~${retryAfter}s` : ' shortly'}...`,
+            updatedAt: new Date()
+          });
+        } else {
+          await AuditJob.findByIdAndUpdate(jobId, {
+            status: 'failed',
+            errorMessage: error.message,
+            updatedAt: new Date()
+          });
+        }
       } catch (dbErr) {
         console.error('Failed to persist failure status:', (dbErr as any)?.message);
       }
@@ -248,6 +257,10 @@ export class JobProcessor {
 
       return response.data;
     } catch (error: any) {
+      // If a previous layer already marked this as rate-limited, bubble it up untouched
+      if (error?.isRateLimit) {
+        throw error;
+      }
       console.error('Python analysis service error:', error.message);
       if (error?.response) {
         console.error('Raw response status:', error.response.status);
@@ -276,8 +289,15 @@ export class JobProcessor {
       if (error.response) {
         throw new Error(`Python analysis failed: ${error.response.data?.message || error.response.statusText}`);
       }
+      // Infer rate-limit from message when axios did not populate response
+      const msg = String(error?.message || '');
+      if (msg.includes('HTTP 429')) {
+        const rateErr: any = new Error(msg);
+        rateErr.isRateLimit = true;
+        throw rateErr;
+      }
 
-      throw new Error(`Python analysis request failed: ${error.message}`);
+      throw new Error(`Python analysis request failed: ${msg}`);
     }
   }
 
