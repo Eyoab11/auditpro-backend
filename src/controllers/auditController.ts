@@ -1,5 +1,5 @@
 // src/controllers/auditController.ts
-import { Request, Response, NextFunction } from 'express';
+import { Response, NextFunction } from 'express';
 import { AuditService } from '../services/auditService';
 import { validateAuditRequest } from '../utils/validation';
 import { asyncHandler } from '../middleware/errorHandler';
@@ -7,8 +7,21 @@ import { ApiResponse, SubmitAuditResponse, AuditJobResponse, AuditResultsRespons
 import puppeteer from 'puppeteer-core';
 import chromium from '@sparticuz/chromium';
 
+interface AuthenticatedRequest {
+  body: any;
+  user?: {
+    _id: string;
+    id?: string;
+    role?: string;
+    email?: string;
+    name?: string;
+  };
+  params: any;
+  query: any;
+}
+
 export const submitAudit = asyncHandler(async (
-  req: Request,
+  req: AuthenticatedRequest,
   res: Response,
   next: NextFunction
 ): Promise<void> => {
@@ -24,7 +37,7 @@ export const submitAudit = asyncHandler(async (
   }
 
   const { url } = req.body;
-  const userId = req.user?._id || req.user?.id; // Get user ID from authenticated request
+  const userId = req.user?._id || req.user?.id;
   if (!userId) {
     res.status(401).json({ success: false, error: 'Not authorized' });
     return;
@@ -40,7 +53,7 @@ export const submitAudit = asyncHandler(async (
 });
 
 export const getAuditStatus = asyncHandler(async (
-  req: Request,
+  req: AuthenticatedRequest,
   res: Response,
   next: NextFunction
 ): Promise<void> => {
@@ -94,7 +107,7 @@ export const getAuditStatus = asyncHandler(async (
 });
 
 export const getAuditResults = asyncHandler(async (
-  req: Request,
+  req: AuthenticatedRequest,
   res: Response,
   next: NextFunction
 ): Promise<void> => {
@@ -158,7 +171,7 @@ export const getAuditResults = asyncHandler(async (
 });
 
 export const listAudits = asyncHandler(async (
-  req: Request,
+  req: AuthenticatedRequest,
   res: Response,
   next: NextFunction
 ): Promise<void> => {
@@ -178,7 +191,7 @@ export const listAudits = asyncHandler(async (
 
 // Generate PDF report for a completed audit
 export const generateAuditPdf = asyncHandler(async (
-  req: Request,
+  req: AuthenticatedRequest,
   res: Response,
   next: NextFunction
 ): Promise<void> => {

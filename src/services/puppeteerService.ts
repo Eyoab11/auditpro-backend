@@ -1,5 +1,6 @@
 // src/services/puppeteerService.ts
-import puppeteer, { Browser, Page } from 'puppeteer-core';
+import puppeteer, { Browser, Page } from 'puppeteer';
+import puppeteerCore from 'puppeteer-core';
 import chromium from '@sparticuz/chromium';
 import {
   RawAuditData,
@@ -32,18 +33,39 @@ export class PuppeteerService {
     try {
       console.log(`🚀 Starting audit for ${url} (Job ID: ${jobId})`);
 
-      // Use @sparticuz/chromium for launching browser
-      browser = await puppeteer.launch({
-        args: chromium.args,
-        defaultViewport: chromium.defaultViewport,
-        executablePath: await chromium.executablePath(),
-        headless: chromium.headless,
-        ignoreHTTPSErrors: true,
-      });
+      // Configure browser launch based on environment
+      const isProduction = process.env.NODE_ENV === 'production';
+      
+      if (isProduction) {
+        // Use @sparticuz/chromium for serverless environments
+        browser = await puppeteerCore.launch({
+          args: chromium.args,
+          defaultViewport: chromium.defaultViewport,
+          executablePath: await chromium.executablePath(),
+          headless: chromium.headless,
+          ignoreHTTPSErrors: true,
+        }) as any;
+      } else {
+        // Use local Chrome/Chromium for development
+        browser = await puppeteer.launch({
+          headless: true,
+          args: [
+            '--no-sandbox',
+            '--disable-setuid-sandbox',
+            '--disable-dev-shm-usage',
+            '--disable-accelerated-2d-canvas',
+            '--no-first-run',
+            '--no-zygote',
+            '--disable-gpu'
+          ]
+        });
+      }
 
-  page = await browser.newPage();
-  // Reduce memory footprint
-  await page.setCacheEnabled(false);
+      if (!browser) {
+        throw new Error('Failed to launch browser');
+      }
+      
+      page = await browser.newPage();
 
       // Set user agent to avoid bot detection
       await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36');
@@ -53,31 +75,18 @@ export class PuppeteerService {
       const networkRequests: NetworkRequest[] = [];
       const injectedTags: InjectedTag[] = [];
 
-      // Intercept requests to skip heavy assets and cap memory use
-      await page.setRequestInterception(true);
+      // Monitor network requests
       page.on('request', (request) => {
-        try {
-          const requestUrl = request.url();
-          const resourceType = request.resourceType();
-          // Abort heavy, non-essential assets to save memory/CPU
-          if (['image', 'media', 'font', 'stylesheet'].includes(resourceType)) {
-            request.abort();
-          } else {
-            request.continue();
-          }
-          // Track relevant network requests (cap to 200 to prevent large arrays)
-          if (
-            (this.isTrackingRequest(requestUrl) || ['script', 'xhr', 'fetch'].includes(resourceType)) &&
-            networkRequests.length < 200
-          ) {
-            networkRequests.push({
-              url: requestUrl,
-              type: resourceType as any,
-              initiator: request.frame()?.url() || url
-            });
-          }
-        } catch {
-          // best-effort; ignore
+        const requestUrl = request.url();
+        const resourceType = request.resourceType();
+
+        // Track relevant network requests
+        if (this.isTrackingRequest(requestUrl) || ['script', 'xhr', 'fetch'].includes(resourceType)) {
+          networkRequests.push({
+            url: requestUrl,
+            type: resourceType as any,
+            initiator: request.frame()?.url() || url
+          });
         }
       });
 
@@ -185,8 +194,8 @@ export class PuppeteerService {
           type: script.src ? 'script' : 'inline',
           location: script.closest('head') ? 'head' : 'body',
           async: script.async,
-          defer: script.defer
-          // Intentionally omit innerHTML to avoid huge payloads
+          defer: script.defer,
+          innerHTML: script.innerHTML
         }));
       });
 

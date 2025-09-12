@@ -26,7 +26,7 @@ const UserSchema: Schema = new Schema({
   password: {
     type: String,
     required: [true, 'Please add a password'],
-    minlength: 6,
+    minlength: [8, 'Password must be at least 8 characters long'],
     select: false // Don't include password in queries by default
   },
   name: {

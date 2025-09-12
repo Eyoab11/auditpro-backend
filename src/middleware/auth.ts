@@ -1,19 +1,23 @@
 // src/middleware/auth.ts
 import jwt from 'jsonwebtoken';
-import { Request, Response, NextFunction } from 'express';
+import { Response, NextFunction } from 'express';
 import User from '../models/User';
 
-// Extend Express Request interface to include user
-interface AuthUser {
-  _id: string;
-  id?: string; // convenience when coming from decoded token
-  role?: string;
-  email?: string;
-  name?: string;
+interface AuthenticatedRequest {
+  headers: {
+    authorization?: string;
+  };
+  user?: {
+    _id: string;
+    id?: string;
+    role?: string;
+    email?: string;
+    name?: string;
+  };
 }
 
 // Protect routes - require authentication
-export const protect = async (req: Request, res: Response, next: NextFunction) => {
+export const protect = async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
   let token;
 
   if (
@@ -39,7 +43,7 @@ export const protect = async (req: Request, res: Response, next: NextFunction) =
     if (!found) {
       return res.status(401).json({ success: false, error: 'Not authorized to access this route' });
     }
-  req.user = { _id: (found._id as unknown as string).toString(), email: found.email, name: found.name };
+    req.user = { _id: (found._id as unknown as string).toString(), email: found.email, name: found.name };
 
     next();
   } catch (err) {
@@ -52,7 +56,7 @@ export const protect = async (req: Request, res: Response, next: NextFunction) =
 
 // Grant access to specific roles (optional, for future use)
 export const authorize = (...roles: string[]) => {
-  return (req: Request, res: Response, next: NextFunction) => {
+  return (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     if (!req.user) {
       return res.status(401).json({
         success: false,
@@ -60,7 +64,7 @@ export const authorize = (...roles: string[]) => {
       });
     }
 
-  if (req.user.role && !roles.includes(req.user.role)) {
+    if (req.user.role && !roles.includes(req.user.role)) {
       return res.status(403).json({
         success: false,
         error: `User role ${req.user.role} is not authorized to access this route`

@@ -1,11 +1,24 @@
 // src/controllers/authController.ts
-import { Request, Response, NextFunction } from 'express';
+import { Response, NextFunction } from 'express';
 import User from '../models/User';
+
+interface AuthenticatedRequest {
+  body: any;
+  user?: {
+    _id: string;
+    id?: string;
+    role?: string;
+    email?: string;
+    name?: string;
+  };
+  params: any;
+  query: any;
+}
 
 // @desc    Register user
 // @route   POST /api/auth/register
 // @access  Public
-export const register = async (req: Request, res: Response, next: NextFunction) => {
+export const register = async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
   try {
     const { name, email, password } = req.body;
 
@@ -37,6 +50,15 @@ export const register = async (req: Request, res: Response, next: NextFunction) 
       });
     }
 
+    // Handle validation errors
+    if (err.name === 'ValidationError') {
+      const messages = Object.values(err.errors).map((val: any) => val.message);
+      return res.status(400).json({
+        success: false,
+        error: messages.join(', ')
+      });
+    }
+
     res.status(500).json({
       success: false,
       error: 'Server error during registration'
@@ -47,7 +69,7 @@ export const register = async (req: Request, res: Response, next: NextFunction) 
 // @desc    Login user
 // @route   POST /api/auth/login
 // @access  Public
-export const login = async (req: Request, res: Response, next: NextFunction) => {
+export const login = async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
   try {
     const { email, password } = req.body;
 
@@ -102,7 +124,7 @@ export const login = async (req: Request, res: Response, next: NextFunction) => 
 // @desc    Get current logged in user
 // @route   GET /api/auth/me
 // @access  Private
-export const getMe = async (req: Request, res: Response, next: NextFunction) => {
+export const getMe = async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
   try {
     if (!req.user) {
       return res.status(401).json({
